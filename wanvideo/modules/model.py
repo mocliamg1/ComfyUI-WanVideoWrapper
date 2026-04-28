@@ -2052,6 +2052,10 @@ class WanModel(torch.nn.Module):
     def _tensor_cache_key(tensor):
         if tensor is None:
             return None
+        try:
+            version = tensor._version
+        except RuntimeError:
+            version = None
         return (
             id(tensor),
             tensor.data_ptr(),
@@ -2059,7 +2063,7 @@ class WanModel(torch.nn.Module):
             tuple(tensor.stride()),
             tensor.dtype,
             tensor.device,
-            getattr(tensor, "_version", None),
+            version,
         )
 
     @classmethod
