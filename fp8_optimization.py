@@ -13,7 +13,10 @@ def fp8_linear_forward(cls, base_dtype, input):
             if scale_weight is None:
                 scale_weight = torch.ones((), device=input.device, dtype=torch.float32)
             else:
-                scale_weight = scale_weight.to(input.device).squeeze()
+                if scale_weight.device != input.device:
+                    scale_weight = scale_weight.to(input.device, non_blocking=True)
+                    cls.scale_weight = scale_weight
+                scale_weight = scale_weight.squeeze()
 
             scale_input = torch.ones((), device=input.device, dtype=torch.float32)
 
@@ -39,7 +42,7 @@ def convert_fp8_linear(module, base_dtype, params_to_keep={}, scale_weight_keys=
                 if scale_weight_keys is not None:
                     scale_key = f"{name}.scale_weight"
                     if scale_key in scale_weight_keys:
-                        setattr(submodule, "scale_weight", scale_weight_keys[scale_key].float())
+                        submodule.register_buffer("scale_weight", scale_weight_keys[scale_key].float())
                 original_forward = submodule.forward
                 setattr(submodule, "original_forward", original_forward)
                 setattr(submodule, "forward", lambda input, m=submodule: fp8_linear_forward(m, base_dtype, input))

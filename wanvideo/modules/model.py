@@ -648,6 +648,7 @@ class WanT2VCrossAttention(WanSelfAttention):
                 num_latent_frames=21, nag_params={}, nag_context=None, rope_func="comfy",
                 inner_t=None, inner_c=None, cross_freqs=None,
                 adapter_proj=None, ip_scale=1.0, orig_seq_len=None, lynx_x_ip=None, lynx_ip_scale=1.0, longcat_num_cond_latents=None, **kwargs):
+        attention_mode = kwargs.get("attention_mode_override") or self.attention_mode
         b, n, d = x.size(0), self.num_heads, self.head_dim
         s = x.size(1)
         # compute query
@@ -679,7 +680,7 @@ class WanT2VCrossAttention(WanSelfAttention):
                 q = rope_apply_z(q, grid_sizes, cross_freqs, inner_t).to(q)
                 k = rope_apply_c(k, cross_freqs, inner_c).to(q)
 
-            x = attention(q, k, v, attention_mode=self.attention_mode, heads=self.num_heads).flatten(2)
+            x = attention(q, k, v, attention_mode=attention_mode, heads=self.num_heads).flatten(2)
 
         if lynx_x_ip is not None and self.ip_adapter is not None and ip_scale !=0:
             lynx_x_ip = self.ip_adapter(self, q, lynx_x_ip)
@@ -691,12 +692,12 @@ class WanT2VCrossAttention(WanSelfAttention):
                 audio_q = q.view(b * num_latent_frames, -1, n, d)
                 ip_key = self.k_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
                 ip_value = self.v_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
-                audio_x = attention(audio_q, ip_key, ip_value, attention_mode=self.attention_mode, heads=self.num_heads)
+                audio_x = attention(audio_q, ip_key, ip_value, attention_mode=attention_mode, heads=self.num_heads)
                 audio_x = audio_x.view(b, q.size(1), n, d).flatten(2)
             elif len(audio_proj.shape) == 3:
                 ip_key = self.k_proj(audio_proj).view(b, -1, n, d)
                 ip_value = self.v_proj(audio_proj).view(b, -1, n, d)
-                audio_x = attention(q, ip_key, ip_value, attention_mode=self.attention_mode, heads=self.num_heads).flatten(2)
+                audio_x = attention(q, ip_key, ip_value, attention_mode=attention_mode, heads=self.num_heads).flatten(2)
             x = x + audio_x * audio_scale
 
         # FantasyPortrait adapter attention
@@ -707,13 +708,13 @@ class WanT2VCrossAttention(WanSelfAttention):
                 ip_key = self.ip_adapter_single_stream_k_proj(adapter_proj).view(b * num_latent_frames, -1, n, d)
                 ip_value = self.ip_adapter_single_stream_v_proj(adapter_proj).view(b * num_latent_frames, -1, n, d)
 
-                adapter_x = attention(adapter_q, ip_key, ip_value, attention_mode=self.attention_mode, heads=self.num_heads)
+                adapter_x = attention(adapter_q, ip_key, ip_value, attention_mode=attention_mode, heads=self.num_heads)
                 adapter_x = adapter_x.view(b, q_in.size(1), n, d)
                 adapter_x = adapter_x.flatten(2)
             elif len(adapter_proj.shape) == 3:
                 ip_key = self.ip_adapter_single_stream_k_proj(adapter_proj).view(b, -1, n, d)
                 ip_value = self.ip_adapter_single_stream_v_proj(adapter_proj).view(b, -1, n, d)
-                adapter_x = attention(q_in, ip_key, ip_value, attention_mode=self.attention_mode, heads=self.num_heads)
+                adapter_x = attention(q_in, ip_key, ip_value, attention_mode=attention_mode, heads=self.num_heads)
                 adapter_x = adapter_x.flatten(2)
             x[:, :orig_seq_len] = x[:, :orig_seq_len] + adapter_x * ip_scale
 
@@ -751,6 +752,7 @@ class WanI2VCrossAttention(WanSelfAttention):
             x(Tensor): Shape [B, L1, C]
             context(Tensor): Shape [B, L2, C]
         """
+        attention_mode = kwargs.get("attention_mode_override") or self.attention_mode
         b, n, d = x.size(0), self.num_heads, self.head_dim
 
         # compute query
@@ -764,14 +766,14 @@ class WanI2VCrossAttention(WanSelfAttention):
             # text attention
             k = self.norm_k(self.k(context).to(self.norm_k.weight.dtype)).view(b, -1, n, d).to(x.dtype)
             v = self.v(context).view(b, -1, n, d)
-            x = attention(q, k, v, attention_mode=self.attention_mode, heads=self.num_heads).flatten(2)
+            x = attention(q, k, v, attention_mode=attention_mode, heads=self.num_heads).flatten(2)
             del k, v
 
         #img attention
         if clip_embed is not None:
             k_img = self.norm_k_img(self.k_img(clip_embed).to(self.norm_k_img.weight.dtype)).view(b, -1, n, d).to(x.dtype)
             v_img = self.v_img(clip_embed).view(b, -1, n, d)
-            x.add_(attention(q, k_img, v_img, attention_mode=self.attention_mode, heads=self.num_heads).flatten(2))
+            x.add_(attention(q, k_img, v_img, attention_mode=attention_mode, heads=self.num_heads).flatten(2))
             del k_img, v_img
 
         # FantasyTalking audio attention
@@ -781,12 +783,12 @@ class WanI2VCrossAttention(WanSelfAttention):
                 ip_key = self.k_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
                 ip_value = self.v_proj(audio_proj).view(b * num_latent_frames, -1, n, d)
 
-                audio_x = attention(audio_q, ip_key, ip_value, attention_mode=self.attention_mode, heads=self.num_heads)
+                audio_x = attention(audio_q, ip_key, ip_value, attention_mode=attention_mode, heads=self.num_heads)
                 audio_x = audio_x.view(b, q.size(1), n, d).flatten(2)
             elif len(audio_proj.shape) == 3:
                 ip_key = self.k_proj(audio_proj).view(b, -1, n, d)
                 ip_value = self.v_proj(audio_proj).view(b, -1, n, d)
-                audio_x = attention(q, ip_key, ip_value, attention_mode=self.attention_mode, heads=self.num_heads).flatten(2)
+                audio_x = attention(q, ip_key, ip_value, attention_mode=attention_mode, heads=self.num_heads).flatten(2)
             x = x + audio_x * audio_scale
 
         # FantasyPortrait adapter attention
@@ -796,13 +798,13 @@ class WanI2VCrossAttention(WanSelfAttention):
                 ip_key = self.ip_adapter_single_stream_k_proj(adapter_proj).view(b * num_latent_frames, -1, n, d)
                 ip_value = self.ip_adapter_single_stream_v_proj(adapter_proj).view(b * num_latent_frames, -1, n, d)
 
-                adapter_x = attention(adapter_q, ip_key, ip_value, attention_mode=self.attention_mode, heads=self.num_heads)
+                adapter_x = attention(adapter_q, ip_key, ip_value, attention_mode=attention_mode, heads=self.num_heads)
                 adapter_x = adapter_x.view(b, q.size(1), n, d)
                 adapter_x = adapter_x.flatten(2)
             elif len(adapter_proj.shape) == 3:
                 ip_key = self.ip_adapter_single_stream_k_proj(adapter_proj).view(b, -1, n, d)
                 ip_value = self.ip_adapter_single_stream_v_proj(adapter_proj).view(b, -1, n, d)
-                adapter_x = attention(q, ip_key, ip_value, attention_mode=self.attention_mode, heads=self.num_heads)
+                adapter_x = attention(q, ip_key, ip_value, attention_mode=attention_mode, heads=self.num_heads)
                 adapter_x = adapter_x.flatten(2)
             x = x + adapter_x * ip_scale
         del q
@@ -815,6 +817,7 @@ class WanHuMoCrossAttention(WanSelfAttention):
         self.attention_mode = attention_mode
 
     def forward(self, x, context, grid_sizes, **kwargs):
+        attention_mode = kwargs.get("attention_mode_override") or self.attention_mode
 
         b, n, d = x.size(0), self.num_heads, self.head_dim
         q = self.norm_q(self.q(x).to(self.norm_q.weight.dtype).to(x.dtype)).view(b, -1, n, d)
@@ -829,7 +832,7 @@ class WanHuMoCrossAttention(WanSelfAttention):
         k = k.reshape(-1, 16, n, d)
         v = v.reshape(-1, 16, n, d)
 
-        x_text = attention(q, k, v, attention_mode=self.attention_mode, heads=self.num_heads)
+        x_text = attention(q, k, v, attention_mode=attention_mode, heads=self.num_heads)
         x_text = x_text.view(b, -1, n, d).flatten(2)
 
         x = x_text
@@ -870,6 +873,7 @@ class MTVCrafterMotionAttention(WanSelfAttention):
             k=apply_rotary_emb(k, pe).transpose(1, 2),
             v=v,
             heads=self.num_heads,
+            attention_mode=self.attention_mode,
         )
 
         return self.o(x.flatten(2))
@@ -922,7 +926,8 @@ class WanAttentionBlock(nn.Module):
 
         if cross_attn_type != "no_cross_attn":
             self.norm3 = WanLayerNorm(out_features, eps, elementwise_affine=True) if cross_attn_norm else nn.Identity()
-            self.cross_attn = WAN_CROSSATTENTION_CLASSES[cross_attn_type](in_features, out_features, num_heads, qk_norm, eps, rms_norm_function=rms_norm_function,
+            self.cross_attn = WAN_CROSSATTENTION_CLASSES[cross_attn_type](in_features, out_features, num_heads, qk_norm=qk_norm, eps=eps,
+                                                                          attention_mode=self.attention_mode, rms_norm_function=rms_norm_function,
                                                                           head_norm=is_longcat)
         self.norm2 = WanLayerNorm(self.dim, eps)
 
@@ -1170,7 +1175,9 @@ class WanAttentionBlock(nn.Module):
             feta_scores = get_feta_scores(q, k)
 
         if self.attention_mode == "sageattn_3" and attention_mode_override is None:
-            if current_step != 0 and not last_step:
+            # SageAttention3's FP4 path is fastest in the middle denoising steps, while
+            # the first and last steps are more sensitive to quantization error.
+            if current_step == 0 or last_step:
                 attention_mode_override = "sageattn"
 
         #self-attention
@@ -1311,7 +1318,8 @@ class WanAttentionBlock(nn.Module):
                                         target_seq=x, 
                                         target_seq_lens=seq_lens, 
                                         target_grid_sizes=grid_sizes, 
-                                        target_freqs=freqs)
+                                        target_freqs=freqs,
+                                        attention_mode_override=attention_mode_override)
                 y = self.audio_block.ffn(torch.addcmul(shift_mlp_ovi, self.audio_block.norm2(x_ovi), 1 + scale_mlp_ovi))
                 x_ovi = x_ovi.addcmul(y, gate_mlp_ovi)
 
@@ -1321,17 +1329,19 @@ class WanAttentionBlock(nn.Module):
                                         target_seq=og_ovi_x, 
                                         target_seq_lens=seq_lens_ovi, 
                                         target_grid_sizes=grid_sizes_ovi, 
-                                        target_freqs=freqs_ovi)
+                                        target_freqs=freqs_ovi,
+                                        attention_mode_override=attention_mode_override)
             elif split_attn:
                 if nag_context is not None:
                     raise NotImplementedError("nag_context is not supported in split_cross_attn_ffn")
-                x = self.split_cross_attn_ffn(x, context, shift_mlp, scale_mlp, gate_mlp, clip_embed, grid_sizes)
+                x = self.split_cross_attn_ffn(x, context, shift_mlp, scale_mlp, gate_mlp, clip_embed, grid_sizes, attention_mode_override=attention_mode_override)
                 return x, x_ip, lynx_ref_feature, x_ovi
             else:
                 x += self.cross_attn(self.norm3(x.to(self.norm3.weight.dtype)).to(input_dtype), context, grid_sizes, clip_embed=clip_embed, audio_proj=audio_proj, audio_scale=audio_scale,
                                     num_latent_frames=num_latent_frames, nag_params=nag_params, nag_context=nag_context,
                                     rope_func=self.rope_func, inner_t=inner_t, inner_c=inner_c, cross_freqs=cross_freqs,
-                                    adapter_proj=adapter_proj, ip_scale=ip_scale, orig_seq_len=original_seq_len, lynx_x_ip=lynx_x_ip, lynx_ip_scale=lynx_ip_scale, longcat_num_cond_latents=longcat_num_cond_latents).to(input_dtype)
+                                    adapter_proj=adapter_proj, ip_scale=ip_scale, orig_seq_len=original_seq_len, lynx_x_ip=lynx_x_ip, lynx_ip_scale=lynx_ip_scale,
+                                    longcat_num_cond_latents=longcat_num_cond_latents, attention_mode_override=attention_mode_override).to(input_dtype)
                 # MultiTalk
                 if multitalk_audio_embedding is not None and not isinstance(self, VaceWanAttentionBlock):
 
@@ -1415,7 +1425,7 @@ class WanAttentionBlock(nn.Module):
         return x, x_ip, lynx_ref_feature, x_ovi
 
 
-    def split_cross_attn_ffn(self, x, context, shift_mlp, scale_mlp, gate_mlp, clip_embed=None, grid_sizes=None):
+    def split_cross_attn_ffn(self, x, context, shift_mlp, scale_mlp, gate_mlp, clip_embed=None, grid_sizes=None, attention_mode_override=None):
         # Get number of prompts
         num_prompts = context.shape[0]
         num_clip_embeds = 0 if clip_embed is None else clip_embed.shape[0]
@@ -1455,7 +1465,7 @@ class WanAttentionBlock(nn.Module):
             x_segment = x[:, segment_indices, :].to(self.norm3.weight.dtype)
 
             # Process segment with its prompt and clip embedding
-            processed_segment = self.cross_attn(self.norm3(x_segment), segment_context, clip_embed=segment_clip_embed)
+            processed_segment = self.cross_attn(self.norm3(x_segment), segment_context, clip_embed=segment_clip_embed, attention_mode_override=attention_mode_override)
             processed_segment = processed_segment.to(x.dtype)
 
             # Add to combined result
@@ -1866,6 +1876,10 @@ class WanModel(torch.nn.Module):
         self.is_ovi_audio_model = patch_size == [1]
 
         self.audio_model = None
+        self._clip_embed_cache = None
+        self._text_embed_cache = None
+        self._text_embed_ovi_cache = None
+        self._nag_text_embed_cache = None
 
         self.is_longcat = is_longcat
 
@@ -2033,6 +2047,38 @@ class WanModel(torch.nn.Module):
                 num_heads=4,
                 dtype=dtype
             )
+
+    @staticmethod
+    def _tensor_cache_key(tensor):
+        if tensor is None:
+            return None
+        return (
+            id(tensor),
+            tensor.data_ptr(),
+            tuple(tensor.shape),
+            tuple(tensor.stride()),
+            tensor.dtype,
+            tensor.device,
+            getattr(tensor, "_version", None),
+        )
+
+    @classmethod
+    def _tensor_list_cache_key(cls, tensors):
+        if tensors is None:
+            return None
+        return tuple(cls._tensor_cache_key(tensor) for tensor in tensors)
+
+    @staticmethod
+    def _cache_get(cache, key):
+        if key is not None and cache is not None and cache[0] == key:
+            return cache[1]
+        return None
+
+    @staticmethod
+    def _cache_set(key, value):
+        if key is None:
+            return None
+        return (key, value)
 
     def block_swap(self, blocks_to_swap, offload_txt_emb=False, offload_img_emb=False, vace_blocks_to_swap=None, prefetch_blocks=0, block_swap_debug=False):
         # Clamp blocks_to_swap to valid range
@@ -2817,62 +2863,112 @@ class WanModel(torch.nn.Module):
             e = e.to(self.offload_device, non_blocking=self.use_non_blocking)
 
         # clip vision embedding
+        use_embed_cache = not torch.is_grad_enabled()
         clip_embed = None
         if clip_fea is not None and hasattr(self, "img_emb"):
-            if self.offload_img_emb:
-                self.img_emb.to(self.main_device)
-            clip_embed = self.img_emb(clip_fea.to(self.main_device))  # bs x 257 x dim
-            if sdancer_input is not None:
-                clip_fea_c = sdancer_input.get("clip_fea_c", None)
+            clip_fea_c = sdancer_input.get("clip_fea_c", None) if sdancer_input is not None else None
+            clip_cache_key = (
+                self._tensor_cache_key(clip_fea),
+                self._tensor_cache_key(clip_fea_c),
+                self.main_device,
+            ) if use_embed_cache else None
+            clip_embed = self._cache_get(self._clip_embed_cache, clip_cache_key)
+            if clip_embed is None:
+                if self.offload_img_emb:
+                    self.img_emb.to(self.main_device)
+                clip_embed = self.img_emb(clip_fea.to(self.main_device))  # bs x 257 x dim
                 if clip_fea_c is not None:
                     clip_embed += self.img_emb(clip_fea_c.to(self.main_device))
-            if self.offload_img_emb:
-                self.img_emb.to(self.offload_device, non_blocking=self.use_non_blocking)
+                self._clip_embed_cache = self._cache_set(clip_cache_key, clip_embed)
+                if self.offload_img_emb:
+                    self.img_emb.to(self.offload_device, non_blocking=self.use_non_blocking)
+            elif clip_embed.device != self.main_device:
+                clip_embed = clip_embed.to(self.main_device, non_blocking=self.use_non_blocking)
+                self._clip_embed_cache = self._cache_set(clip_cache_key, clip_embed)
 
         #context (text embedding)
         if hasattr(self, "text_embedding") and context != []:
+            raw_context = context
             text_embed_dtype = self.text_embedding[0].weight.dtype
             if text_embed_dtype not in [torch.float16, torch.bfloat16, torch.float32]:
                 text_embed_dtype = self.base_dtype
-            if self.offload_txt_emb:
-                self.text_embedding.to(self.main_device)
 
             if inner_t is not None:
                 if nag_context is not None:
                     raise NotImplementedError("nag_context is not supported with EchoShot")
-                inner_c = [[u.shape[0] for u in context]]
+                inner_c = [[u.shape[0] for u in raw_context]]
 
             if self.audio_model is not None:
                 if is_uncond and ovi_negative_text_embeds is not None:
-                    context_ovi = ovi_negative_text_embeds
+                    raw_context_ovi = ovi_negative_text_embeds
                 else:
-                    context_ovi = context
-                context_ovi = self.audio_model.text_embedding(
-                    torch.stack([torch.cat([u, u.new_zeros(self.text_len - u.size(0), u.size(1))]) for u in context_ovi]).to(text_embed_dtype))
+                    raw_context_ovi = raw_context
+                ovi_cache_key = (
+                    self._tensor_list_cache_key(raw_context_ovi),
+                    text_embed_dtype,
+                    self.text_len,
+                ) if use_embed_cache else None
+                context_ovi = self._cache_get(self._text_embed_ovi_cache, ovi_cache_key)
+                if context_ovi is None:
+                    context_ovi = self.audio_model.text_embedding(
+                        torch.stack([torch.cat([u, u.new_zeros(self.text_len - u.size(0), u.size(1))]) for u in raw_context_ovi]).to(text_embed_dtype))
+                    self._text_embed_ovi_cache = self._cache_set(ovi_cache_key, context_ovi)
 
-            tokens = context[0].shape[0]
-            context = torch.stack([torch.cat([u, u.new_zeros(self.text_len - u.size(0), u.size(1))]) for u in context]).to(text_embed_dtype)
+            tokens = raw_context[0].shape[0]
+            text_cache_key = (
+                self._tensor_list_cache_key(raw_context),
+                self._tensor_cache_key(add_text_emb),
+                text_embed_dtype,
+                self.text_len,
+                self.main_device,
+                self.is_longcat,
+                tokens,
+            ) if use_embed_cache else None
+            context = self._cache_get(self._text_embed_cache, text_cache_key)
+            if context is None:
+                if self.offload_txt_emb:
+                    self.text_embedding.to(self.main_device)
 
-            if add_text_emb is not None:
-                self.text_projection.to(self.main_device)
-                add_text_emb = self.text_projection(add_text_emb.to(self.text_projection[0].weight.dtype)).to(text_embed_dtype)
-                context = torch.cat([add_text_emb, context], dim=1)
-            context = self.text_embedding(context)
+                context = torch.stack([torch.cat([u, u.new_zeros(self.text_len - u.size(0), u.size(1))]) for u in raw_context]).to(text_embed_dtype)
 
-            if self.is_longcat:
-                context[:, tokens:] = 0
+                if add_text_emb is not None:
+                    self.text_projection.to(self.main_device)
+                    add_text_emb = self.text_projection(add_text_emb.to(self.text_projection[0].weight.dtype)).to(text_embed_dtype)
+                    context = torch.cat([add_text_emb, context], dim=1)
+                context = self.text_embedding(context)
+
+                if self.is_longcat:
+                    context[:, tokens:] = 0
+                self._text_embed_cache = self._cache_set(text_cache_key, context)
+                if self.offload_txt_emb:
+                    self.text_embedding.to(self.offload_device, non_blocking=self.use_non_blocking)
+            elif context.device != self.main_device:
+                context = context.to(self.main_device, non_blocking=self.use_non_blocking)
+                self._text_embed_cache = self._cache_set(text_cache_key, context)
 
             # NAG
             if nag_context is not None:
-                nag_context = self.text_embedding(
-                torch.stack([
-                    torch.cat(
-                        [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
-                    for u in nag_context
-                ]).to(text_embed_dtype))
-
-            if self.offload_txt_emb:
-                self.text_embedding.to(self.offload_device, non_blocking=self.use_non_blocking)
+                nag_cache_key = (
+                    self._tensor_list_cache_key(nag_context),
+                    text_embed_dtype,
+                    self.text_len,
+                    self.main_device,
+                ) if use_embed_cache else None
+                cached_nag_context = self._cache_get(self._nag_text_embed_cache, nag_cache_key)
+                if cached_nag_context is None:
+                    if self.offload_txt_emb:
+                        self.text_embedding.to(self.main_device)
+                    nag_context = self.text_embedding(
+                        torch.stack([
+                            torch.cat(
+                                [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
+                            for u in nag_context
+                        ]).to(text_embed_dtype))
+                    self._nag_text_embed_cache = self._cache_set(nag_cache_key, nag_context)
+                    if self.offload_txt_emb:
+                        self.text_embedding.to(self.offload_device, non_blocking=self.use_non_blocking)
+                else:
+                    nag_context = cached_nag_context
 
             seq_chunks = max(context.shape[0], clip_embed.shape[0] if clip_embed is not None else 0)
             chunked_self_attention = seq_chunks > 1 and current_step in self.video_attention_split_steps
